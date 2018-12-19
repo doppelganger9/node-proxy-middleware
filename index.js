@@ -4,6 +4,7 @@ var https = require('https');
 var owns = {}.hasOwnProperty;
 
 module.exports = function proxyMiddleware(options) {
+  console.log('START proxy middleware factory function');
   //enable ability to quickly pass a url for shorthand setup
   if(typeof options === 'string'){
       options = require('url').parse(options);
@@ -17,10 +18,14 @@ module.exports = function proxyMiddleware(options) {
   options.port = options.port;
   options.pathname = options.pathname || '/';
 
-  return function (req, resp, next) {
+  console.log('END proxy middleware factory function -- returned theProxyMiddleware()');
+  return function theProxyMiddleware(req, resp, next) {
+    console.log('START proxy middleware');
     var url = req.url;
+    console.log('proxied URL: ' + url);
     // You can pass the route within the options, as well
     if (typeof options.route === 'string') {
+      console.log('route: ' + options.route);
       if (url === options.route) {
         url = '';
       } else if (url.slice(0, options.route.length) === options.route) {
@@ -43,8 +48,11 @@ module.exports = function proxyMiddleware(options) {
     } else {
       opts.path = options.pathname;
     }
+    console.log('opts.path: ' + opts.path);
     opts.method = req.method;
+    console.log('opts.method: ' + opts.method);
     opts.headers = options.headers ? merge(req.headers, options.headers) : req.headers;
+    console.log('opts.headers: ' + JSON.stringify(opts.headers, null, 2));
 
     applyViaHeader(req.headers, opts, opts.headers);
 
@@ -53,31 +61,45 @@ module.exports = function proxyMiddleware(options) {
       delete opts.headers.host;
     }
 
-    var myReq = request(opts, function (myRes) {
+    var myReq = request(opts, function requestSuccessCallback(myRes) {
+      console.log('  START proxied callback with response');
       var statusCode = myRes.statusCode
-        , headers = myRes.headers
-        , location = headers.location;
+      , headers = myRes.headers
+      , location = headers.location;
+      console.log('  proxied response status: '+statusCode);
+      console.log('  proxied response headers: ' + JSON.stringify(headers,null,2).split('\n').join('\n  '));
+      console.log('  proxied response location: ' + location);
+
       // Fix the location
       if (((statusCode > 300 && statusCode < 304) || statusCode === 201) && location && location.indexOf(options.href) > -1) {
-        // absoulte path
+        // absolute path
+        console.log('  will fix proxied response Location: ' + location);
         headers.location = location.replace(options.href, slashJoin('/', slashJoin((options.route || ''), '')));
+        console.log('  fixed proxied response Location to: ' + headers.location);
       }
       applyViaHeader(myRes.headers, opts, myRes.headers);
       rewriteCookieHosts(myRes.headers, opts, myRes.headers, req);
       resp.writeHead(myRes.statusCode, myRes.headers);
       myRes.on('error', function (err) {
+        console.error(err);
         next(err);
       });
+      console.log('  proxiedResponse.pipe(response)');
       myRes.pipe(resp);
+      console.log('  END proxied callback with response');
     });
     myReq.on('error', function (err) {
+      console.error(err);
       next(err);
     });
     if (!req.readable) {
+      console.log('proxiedRequest.end()');
       myReq.end();
     } else {
+      console.log('request.pipe(proxiedRequest)');
       req.pipe(myReq);
     }
+    console.log('END proxy middleware (sync code)');
   };
 };
 
@@ -89,7 +111,7 @@ function applyViaHeader(existingHeaders, opts, applyTo) {
   if(existingHeaders.via) {
     viaHeader = existingHeaders.via + ', ' + viaHeader;
   }
-
+  console.log('applied via header: ' + viaHeader);
   applyTo.via = viaHeader;
 }
 
@@ -115,6 +137,7 @@ function rewriteCookieHosts(existingHeaders, opts, applyTo, req) {
     rewrittenCookies.push(rewrittenCookie);
   }
 
+  console.log('rewrote cookie host: ' + JSON.stringify(rewrittenCookies, 2, null));
   applyTo['set-cookie'] = rewrittenCookies;
 }
 
